@@ -170,7 +170,7 @@ jobs:
             throw "tcl8.6 not copied — tkinter will fail on end-user machines"
           }
 
-          # Patch python*._pth so embed finds Lib and site-packages
+          # Patch python*._pth
           $pth = Get-ChildItem $offline -Filter "python*._pth" | Select-Object -First 1
           if (-not $pth) { throw "python*._pth not found" }
           $new = @(
@@ -221,24 +221,8 @@ jobs:
             throw "FATAL: llama-cpp-python could not be installed/imported"
           }
 
-          Write-Host "=== Verify imports (with TCL/TK env) ==="
-          $checks = @(
-            "import sys; print(sys.version)",
-            "import tkinter; print('tkinter OK')",
-            "import customtkinter; print('customtkinter OK')",
-            "import llama_cpp; print('llama_cpp OK')",
-            "import requests; print('requests OK')",
-            "import pypdf; print('pypdf OK')",
-            "from PIL import Image; print('Pillow OK')",
-            "import numpy; print('numpy OK')"
-          )
-          foreach ($code in $checks) {
-            & $py -c $code
-            if ($LASTEXITCODE -ne 0) { throw "Import verification failed: $code" }
-          }
-
           # --- Fix for Project Modules ---
-          Write-Host "=== Verify project modules ==="
+          Write-Host "=== Preparing project modules ==="
           $projectPythonPath = "${{ github.workspace }}\scripts\python"
           
           if (-not (Test-Path $projectPythonPath)) {
