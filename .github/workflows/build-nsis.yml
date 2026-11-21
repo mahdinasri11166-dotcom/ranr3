@@ -1,12 +1,5 @@
 name: Build NSIS Setup EXE (Offline-ready)
 
-# Offline installer lessons baked in:
-# 1) Clean YAML indentation
-# 2) llama-server size check (>=1MB)
-# 3) llama-cpp-python from abetlen CPU wheels (+ scikit-build-core fallback)
-# 4-7) Copy full tkinter/tcl/tk into embeddable Python + TCL_LIBRARY/TK_LIBRARY
-# Team: Mehdi Tariri · Mohsen Tarifii
-
 on:
   push:
     tags:
@@ -48,7 +41,6 @@ jobs:
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force -Path bin, bin\_tmp | Out-Null
 
-          # Prefer a known-good CPU win-x64 build; fallback to latest matching asset
           $candidates = @(
             "https://github.com/ggml-org/llama.cpp/releases/download/b8581/llama-b8581-bin-win-cpu-x64.zip",
             "https://github.com/ggerganov/llama.cpp/releases/download/b8581/llama-b8581-bin-win-cpu-x64.zip"
@@ -152,7 +144,6 @@ jobs:
               Write-Host "Copied Lib\$name"
             }
           }
-          # _tkinter.pyd lives in DLLs or Lib
           Get-ChildItem -Path $fullPrefix -Recurse -Filter "_tkinter*.pyd" -ErrorAction SilentlyContinue |
             Select-Object -First 3 |
             ForEach-Object {
@@ -212,7 +203,6 @@ jobs:
 
           Write-Host "=== Installing llama-cpp-python (CPU wheels) ==="
           $installed = $false
-          # abetlen prebuilt CPU wheels for Windows
           Write-Host "Strategy 1: abetlen github pages wheel index"
           & $py -m pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu --prefer-binary --no-warn-script-location
           if ($LASTEXITCODE -eq 0) {
@@ -247,10 +237,29 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "Import verification failed: $code" }
           }
 
-          $root = (Resolve-Path ".").Path
-          $env:PYTHONPATH = Join-Path $root "scripts\python"
+          # --- Fix for Project Modules ---
+          Write-Host "=== Verify project modules ==="
+          $projectPythonPath = "${{ github.workspace }}\scripts\python"
+          
+          if (-not (Test-Path $projectPythonPath)) {
+              throw "FATAL: The folder 'scripts\python' does not exist at $projectPythonPath"
+          }
+          if (-not (Test-Path (Join-Path $projectPythonPath "config_loader.py"))) {
+               throw "FATAL: 'config_loader.py' not found in $projectPythonPath"
+          }
+
+          # تنظیم PYTHONPATH برای تست
+          $env:PYTHONPATH = $projectPythonPath
+          
           & $py -c "import config_loader, agent_tools; print('project modules OK', len(agent_tools.TOOLS), 'tools')"
           if ($LASTEXITCODE -ne 0) { throw "Project module import failed" }
+          
+          # کپی کردن فایل‌های پروژه به داخل پایتون آفلاین برای استفاده در نصب نهایی
+          Write-Host "Copying project scripts into offline python folder..."
+          $targetProjectDir = Join-Path $offline "project_scripts"
+          if (-not (Test-Path $targetProjectDir)) { New-Item -ItemType Directory -Force -Path $targetProjectDir | Out-Null }
+          Copy-Item -Recurse -Force "$projectPythonPath\*" -Destination $targetProjectDir
+          # --- End of Fix ---
 
           # marker for FirstRun / doctor
           @{
