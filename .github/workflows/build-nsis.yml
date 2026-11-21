@@ -186,8 +186,6 @@ jobs:
           $py = Join-Path $offline "python.exe"
           $env:TCL_LIBRARY = Join-Path $offline "tcl\tcl8.6"
           $env:TK_LIBRARY = Join-Path $offline "tcl\tk8.6"
-          Write-Host "TCL_LIBRARY=$env:TCL_LIBRARY"
-          Write-Host "TK_LIBRARY=$env:TK_LIBRARY"
 
           & $py (Join-Path $payload "get-pip.py") --no-warn-script-location
           if ($LASTEXITCODE -ne 0) { throw "get-pip failed" }
@@ -202,48 +200,26 @@ jobs:
           }
 
           Write-Host "=== Installing llama-cpp-python (CPU wheels) ==="
-          $installed = $false
-          Write-Host "Strategy 1: abetlen github pages wheel index"
           & $py -m pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu --prefer-binary --no-warn-script-location
-          if ($LASTEXITCODE -eq 0) {
-            & $py -c "import llama_cpp; print('import ok', getattr(llama_cpp,'__version__','?'))"
-            if ($LASTEXITCODE -eq 0) { $installed = $true }
-          }
-          if (-not $installed) {
-            Write-Host "Strategy 2: only-binary PyPI"
+          if ($LASTEXITCODE -ne 0) {
             & $py -m pip install "llama-cpp-python" --only-binary=:all: --no-warn-script-location
-            if ($LASTEXITCODE -eq 0) {
-              & $py -c "import llama_cpp; print('import ok')"
-              if ($LASTEXITCODE -eq 0) { $installed = $true }
-            }
           }
-          if (-not $installed) {
-            throw "FATAL: llama-cpp-python could not be installed/imported"
-          }
+          & $py -c "import llama_cpp; print('import ok', getattr(llama_cpp,'__version__','?'))"
+          if ($LASTEXITCODE -ne 0) { throw "FATAL: llama-cpp-python could not be installed" }
 
-          # --- Fix for Project Modules ---
-          Write-Host "=== Preparing project modules ==="
+          # --- Fix for Project Modules (CRITICAL FIX) ---
+          Write-Host "=== Copying project modules ==="
           $projectPythonPath = "${{ github.workspace }}\scripts\python"
+          if (-not (Test-Path $projectPythonPath)) { throw "Project path not found: $projectPythonPath" }
           
-          if (-not (Test-Path $projectPythonPath)) {
-              throw "FATAL: The folder 'scripts\python' does not exist at $projectPythonPath"
-          }
-          if (-not (Test-Path (Join-Path $projectPythonPath "config_loader.py"))) {
-               throw "FATAL: 'config_loader.py' not found in $projectPythonPath"
-          }
-
-          # تنظیم PYTHONPATH برای تست
-          $env:PYTHONPATH = $projectPythonPath
+          # کپی کردن تمام فایل های پایتون پروژه به کنار python.exe در نسخه آفلاین
+          Copy-Item -Path "$projectPythonPath\*.py" -Destination $offline -Force
           
-          & $py -c "import config_loader, agent_tools; print('project modules OK', len(agent_tools.TOOLS), 'tools')"
+          # تست با استفاده از sys.path
+          Write-Host "Testing imports..."
+          & $py -c "import sys; sys.path.insert(0, '.'); import config_loader, agent_tools; print('Project modules OK:', len(agent_tools.TOOLS), 'tools loaded')"
           if ($LASTEXITCODE -ne 0) { throw "Project module import failed" }
-          
-          # کپی کردن فایل‌های پروژه به داخل پایتون آفلاین برای استفاده در نصب نهایی
-          Write-Host "Copying project scripts into offline python folder..."
-          $targetProjectDir = Join-Path $offline "project_scripts"
-          if (-not (Test-Path $targetProjectDir)) { New-Item -ItemType Directory -Force -Path $targetProjectDir | Out-Null }
-          Copy-Item -Recurse -Force "$projectPythonPath\*" -Destination $targetProjectDir
-          # --- End of Fix ---
+          # ---------------------------------------------
 
           # marker for FirstRun / doctor
           @{
